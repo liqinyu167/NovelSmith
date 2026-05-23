@@ -1,53 +1,41 @@
-# NovelSmith
+# 织文
 
-AI 长篇小说创作平台 —— 融合 awesome-novel-studio 的写作管线与 NovelForge 的技术引擎。
+织文是一款面向长篇创作者的写作工作台。它不替作者写完故事，而是把设定、人物、章节、伏笔、灵感和修订线索组织成一个可持续生长的创作系统。
 
-## 核心理念
+## 产品定位
 
-> 把经过出版验证的 AI 写作流程，做成开箱即用的 Web 产品。
+织文服务三类核心场景：
 
-- **awesome-novel-studio** → 18 个 Agent 的写作管线，真实签约出版过小说
-- **NovelForge** → 结构化生成引擎、知识图谱、记忆系统、工作流编排
-- **你的 API** → 接入本地 Grok 或其他 OpenAI 兼容 API
+1. 长篇小说作者需要稳定管理世界观、人物关系、章节进度和修改记录。
+2. 网文或连载作者需要快速拆章、续写、查设定、追踪伏笔和保持更新节奏。
+3. 剧本、互动叙事或游戏文案团队需要共享故事资料，并在协作中减少前后矛盾。
 
-## 快速开始
+## 设计原则
 
-```bash
-# 后端
-cd backend
-cp .env.example .env
-# 编辑 .env 填入你的 API 地址和密钥
-pip install -r requirements.txt
-python run_backend.py
+- 作者拥有最终判断，AI 只做副驾驶。
+- 资料组织优先于炫技生成，先让故事变得可查、可控、可延展。
+- 写作界面保持安静，规划界面保持结构化，复盘界面保持可追踪。
+- 所有自动建议都应能解释来源，并允许作者一键采纳、改写或丢弃。
 
-# 前端
-cd frontend
-npm install
-npm run dev:web
-```
+## 核心模块
 
-## 项目结构
+- 工作台：项目总览、今日写作、章节进度、待处理建议。
+- 大纲：卷、篇章、章节、场景的层级规划。
+- 编辑器：专注写作、版本保存、章节目标、批注与修订。
+- 资料库：人物、地点、组织、道具、规则、时间线。
+- 织文助手：续写建议、设定检查、风格提示、摘要生成。
+- 一致性检查：人物称谓、时间顺序、设定冲突、未回收伏笔。
+- 导出：Markdown、DOCX、EPUB 和连载平台草稿格式。
 
-```
-NovelSmith/
-├── backend/          # Python FastAPI 后端
-│   ├── app/          # 应用核心
-│   │   ├── api/      # API 路由
-│   │   ├── core/     # 配置、启动
-│   │   ├── models/   # 数据模型
-│   │   ├── services/ # 业务逻辑
-│   │   └── workflows/# 工作流引擎
-│   ├── alembic/      # 数据库迁移
-│   └── requirements.txt
-├── frontend/         # Vue 3 + CodeMirror
-│   └── src/
-│       ├── views/    # 页面
-│       ├── components/ # UI 组件
-│       ├── stores/   # 状态管理
-│       └── api/      # API 调用
-└── docs/             # 架构文档
-```
+## 当前仓库状态
 
-## 架构
+本仓库已经重置为织文的新规划版本。旧实现已从工作区移除，新的工程实现将按 `ROADMAP.md` 的阶段推进。
 
-见 [ARCHITECTURE.md](ARCHITECTURE.md)。
+## 文档入口
+
+- [产品说明](docs/product-spec.md)
+- [信息架构](docs/information-architecture.md)
+- [技术架构](ARCHITECTURE.md)
+- [MVP 范围](docs/mvp-scope.md)
+- [路线图](ROADMAP.md)
+- [协作约定](docs/collaboration.md)

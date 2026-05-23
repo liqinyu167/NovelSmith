@@ -1,25 +1,33 @@
-# Python
-__pycache__/
-*.py[cod]
-*.egg-info/
-dist/
-build/
-*.db
-.env
+# dependencies
+node_modules/
 .venv/
 venv/
 
-# Node
-node_modules/
-dist-web/
+# build
+dist/
+build/
+.vite/
+coverage/
 
-# IDE
-.vscode/
+# local data
+*.db
+*.sqlite
+*.sqlite3
+data/
+
+# environment
+.env
+.env.*
+!.env.example
+
+# cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+
+# editor
 .idea/
-
-# OS
+.vscode/
 .DS_Store
 Thumbs.db
-
-# Temp
-*.tmp
