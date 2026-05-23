@@ -1,9 +1,13 @@
 import asyncio
+import asyncio
 import json
+import re
 from collections.abc import AsyncIterator
 
 import httpx
 from pydantic import BaseModel
+
+from app.services.hermes_core import decide_intent
 
 
 class AgentRunRequest(BaseModel):
@@ -55,7 +59,7 @@ async def classify_intent(request: AgentRunRequest) -> dict:
 
 async def create_write_plan(request: WritePlanRequest) -> dict:
     if not request.base_url or not request.model or not request.api_key:
-        return demo_write_plan(request)
+        raise RuntimeError(missing_provider_message())
 
     messages = [
         {
@@ -94,15 +98,13 @@ async def create_write_plan(request: WritePlanRequest) -> dict:
 
 
 async def stream_agent_events(request: AgentRunRequest) -> AsyncIterator[dict]:
+    if not request.base_url or not request.model or not request.api_key:
+        yield {"type": "error", "state": "error", "message": missing_provider_message()}
+        return
+
     yield status("planning", "读取当前正文与项目记忆")
     await asyncio.sleep(0.12)
     yield status("preparing", "组装写作上下文")
-
-    if not request.base_url or not request.model or not request.api_key:
-        async for event in stream_demo():
-            yield event
-        return
-
     yield status("connecting", f"连接模型 {request.model}")
     await asyncio.sleep(0.05)
     yield status("writing", "模型正在生成正文")
@@ -114,17 +116,13 @@ async def stream_agent_events(request: AgentRunRequest) -> AsyncIterator[dict]:
 
 
 async def stream_chat_events(request: AgentRunRequest) -> AsyncIterator[dict]:
+    if not request.base_url or not request.model or not request.api_key:
+        yield {"type": "error", "state": "error", "message": missing_provider_message()}
+        return
+
     yield status("preparing", "读取项目记忆与当前正文状态")
     context = build_context_tool_result(request)
     yield {"type": "tool_result", "state": "preparing", "name": "read_project_context", "content": context}
-
-    if not request.base_url or not request.model or not request.api_key:
-        text = "我可以先和你讨论创作方向、设定、角色、结构，也可以在你明确要求写入正文时进入确认流程。当前没有配置 API，所以这是本地演示回复。"
-        for chunk in chunk_text(text, 10):
-            await asyncio.sleep(0.04)
-            yield {"type": "assistant_delta", "state": "writing", "text": chunk}
-        yield {"type": "done", "state": "done"}
-        return
 
     yield status("connecting", f"连接模型 {request.model}")
     messages = [
@@ -132,8 +130,10 @@ async def stream_chat_events(request: AgentRunRequest) -> AsyncIterator[dict]:
             "role": "system",
             "content": (
                 "You are NovelSmith Director Agent. You can chat normally in Chinese and help with novel planning, settings, characters, style, and workflow. "
-                "Do not write into the manuscript unless the user explicitly asks to write/continue/rewrite/polish/insert manuscript text. "
-                "When answering, be concise and useful. You have tool context about the current project."
+                "You have one editor tool named append_to_manuscript. "
+                "When the user explicitly asks you to write, continue, rewrite, polish, expand, or insert novel正文, you MUST call append_to_manuscript with polished Chinese manuscript text. "
+                "Do not put manuscript prose in a normal chat answer when an editor tool call is appropriate. "
+                "For discussion, questions, planning, or critique, answer normally without tools. Be concise and useful."
             ),
         },
         {
@@ -145,25 +145,131 @@ async def stream_chat_events(request: AgentRunRequest) -> AsyncIterator[dict]:
             ),
         },
     ]
-    async for token in stream_openai_compatible_messages(request, messages, temperature=0.65):
+    payload = {
+        "model": request.model,
+        "messages": messages,
+        "temperature": 0.65,
+        "stream": False,
+        "tools": [append_manuscript_tool_schema()],
+        "tool_choice": "auto",
+    }
+    try:
+        data = await openai_chat_json(request, payload)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code not in {400, 422}:
+            raise
+        if decide_intent(request.prompt).action == "write":
+            yield status("writing", "模型工具协议不可用，切换内置正文编辑器")
+            async for token in stream_openai_compatible(request):
+                yield {"type": "manuscript_delta", "state": "writing", "text": token}
+            yield {"type": "assistant_delta", "state": "writing", "text": "已写入正文编辑区。"}
+            yield {"type": "done", "state": "done"}
+            return
+        yield status("writing", "模型工具协议不可用，切换普通对话")
+        async for token in stream_openai_compatible_messages(request, messages, temperature=0.65):
+            yield {"type": "assistant_delta", "state": "writing", "text": token}
+        yield {"type": "done", "state": "done"}
+        return
+    message = data.get("choices", [{}])[0].get("message", {})
+    tool_calls = message.get("tool_calls") or []
+
+    if tool_calls:
+        wrote_any = False
+        for tool_call in tool_calls:
+            function = tool_call.get("function") or {}
+            if function.get("name") != "append_to_manuscript":
+                continue
+            try:
+                arguments = json.loads(function.get("arguments") or "{}")
+            except json.JSONDecodeError:
+                arguments = {}
+            raw_text = str(arguments.get("text") or "").strip()
+            text = clean_manuscript_text(raw_text)
+            summary = clean_tool_summary(str(arguments.get("summary") or ""), raw_text, text)
+            if not text:
+                continue
+            wrote_any = True
+            yield status("writing", "调用正文编辑器 append_to_manuscript")
+            yield {
+                "type": "tool_result",
+                "state": "writing",
+                "name": "append_to_manuscript",
+                "content": json.dumps({"chars": len(text), "position": "chapter_end", "summary": summary}, ensure_ascii=False),
+            }
+            for chunk in chunk_text(text, 12):
+                await asyncio.sleep(0.02)
+                yield {"type": "manuscript_delta", "state": "writing", "text": chunk}
+            for chunk in chunk_text(summary, 12):
+                await asyncio.sleep(0.015)
+                yield {"type": "assistant_delta", "state": "writing", "text": chunk}
+        if not wrote_any:
+            yield {"type": "error", "state": "error", "message": "模型请求了编辑工具，但没有提供可写入的正文。"}
+            return
+        yield {"type": "done", "state": "done"}
+        return
+
+    content = str(message.get("content") or "").strip()
+    if not content:
+        content = "模型没有返回内容，也没有调用正文编辑工具。"
+    for token in chunk_text(content, 12):
+        await asyncio.sleep(0.015)
         yield {"type": "assistant_delta", "state": "writing", "text": token}
     yield {"type": "done", "state": "done"}
 
 
-async def stream_demo() -> AsyncIterator[dict]:
-    yield status("demo", "未配置 API，正在使用本地演示文本")
-    sample = (
-        "\n\n雨从旧城区的天桥缝隙里落下来，像一整座城市没有说出口的秘密。\n\n"
-        "林烬把那封信握在掌心。纸面很干，干得不像刚从雨夜里来，"
-        "封口处却沾着一点银色的蜡，里面压着他自己的指纹。\n\n"
-        "信上只有一行字：\n\n"
-        "> 十年后的你已经失败。今晚不要回家。\n\n"
-        "他抬起头，街对面的霓虹灯忽然全部熄灭。黑暗里，有人用他的声音轻轻笑了一下。\n"
-    )
-    for chunk in chunk_text(sample, 8):
-        await asyncio.sleep(0.055)
-        yield {"type": "manuscript_delta", "state": "writing", "text": chunk}
-    yield {"type": "done", "state": "done"}
+def missing_provider_message() -> str:
+    return "Hermes Agent 未连接 API：请先在右上角配置 Base URL、Model 和 API Key。"
+
+
+def append_manuscript_tool_schema() -> dict:
+    return {
+        "type": "function",
+        "function": {
+            "name": "append_to_manuscript",
+            "description": "Append polished Chinese novel manuscript text to the current chapter editor.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "text": {
+                        "type": "string",
+                        "description": "正文内容。只包含可以直接进入小说正文编辑器的中文小说文本，不要解释。",
+                    },
+                    "summary": {
+                        "type": "string",
+                        "description": "给用户看的简短中文说明，例如：已续写并写入正文。",
+                    },
+                },
+                "required": ["text"],
+                "additionalProperties": False,
+            },
+        },
+    }
+
+
+def clean_manuscript_text(text: str) -> str:
+    value = text.strip()
+    value = re.sub(r"<\|end_+of_+thinking\|>", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"<\|/?think\|>", "", value, flags=re.IGNORECASE)
+    value = re.sub(r"<think>.*?</think>", "", value, flags=re.IGNORECASE | re.DOTALL)
+    value = re.split(r"<\s*\|+\s*DSML\s*\|+", value, maxsplit=1, flags=re.IGNORECASE)[0]
+    value = re.split(r"parameter\s+name=[\"']summary[\"']", value, maxsplit=1, flags=re.IGNORECASE)[0]
+    value = re.sub(r"\n{3,}", "\n\n", value)
+    return value.strip()
+
+
+def clean_tool_summary(summary: str, raw_text: str, cleaned_text: str) -> str:
+    value = summary.strip()
+    if not value:
+        match = re.search(r"parameter\s+name=[\"']summary[\"'][^>]*>(.*)$", raw_text, flags=re.IGNORECASE | re.DOTALL)
+        if match:
+            value = match.group(1).strip()
+    value = re.sub(r"<[^>]+>", "", value).strip()
+    if not value:
+        preview = cleaned_text.replace("\n", " ").strip()[:48]
+        value = f"已写入正文，约 {len(cleaned_text)} 字。开头：{preview}"
+    elif "约" not in value and "字" not in value:
+        value = f"{value}（约 {len(cleaned_text)} 字）"
+    return value
 
 
 async def stream_openai_compatible(request: AgentRunRequest) -> AsyncIterator[str]:
@@ -272,14 +378,8 @@ def ensure_string_list(value: object, fallback: list[str]) -> list[str]:
 
 
 def heuristic_intent(prompt: str) -> dict:
-    strong_write_words = ["续写", "改写", "润色", "扩写", "生成正文", "插入", "补一段", "写一段", "写入"]
-    weak_write_words = ["写", "开头", "结尾", "章节"]
-    question_words = ["怎么", "为什么", "讨论", "分析", "配置", "状态", "能不能", "是什么", "建议", "架构", "？", "?"]
-    if any(word in prompt for word in strong_write_words):
-        return {"action": "write", "reason": "检测到明确写作/写入意图"}
-    if any(word in prompt for word in weak_write_words) and not any(word in prompt for word in question_words):
-        return {"action": "write", "reason": "检测到写作请求"}
-    return {"action": "chat", "reason": "普通对话或工具咨询"}
+    decision = decide_intent(prompt)
+    return {"action": decision.action, "reason": decision.reason}
 
 
 def build_context_tool_result(request: AgentRunRequest) -> str:
