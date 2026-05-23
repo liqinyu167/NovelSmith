@@ -2,6 +2,8 @@
 
 Local-first AI novel writing studio.
 
+See [ROADMAP.md](ROADMAP.md) for the planned Hermes/Codex-style agent direction.
+
 ## Run locally
 
 Backend:
