@@ -2,14 +2,23 @@
 
 本文件是 NovelSmith 内部给 Codex 使用的 Hermes Agent 二次开发索引。以后涉及 Agent Loop、工具调用、模型 Provider、Memory、Skill、Plugin、前端状态流时，先查这里，再进入对应源码或官方文档。
 
-## 官方入口
+## 官方入口 (官方二次开发文档入口)
 
-- 官方文档站：https://hermes-agent.nousresearch.com/docs/
-- LLM 索引：https://hermes-agent.nousresearch.com/docs/llms.txt
-- LLM 全量文档：https://hermes-agent.nousresearch.com/docs/llms-full.txt
-- GitHub 仓库：https://github.com/NousResearch/hermes-agent
-- CONTRIBUTING.md：https://github.com/NousResearch/hermes-agent/blob/main/CONTRIBUTING.md
-- AGENTS.md：https://github.com/NousResearch/hermes-agent/blob/main/AGENTS.md
+1. **官方文档站（推荐首选）**：
+   - 链接：https://hermes-agent.nousresearch.com/docs/
+   - 重点开发者部分：
+     - **Developer Guide**：包含 Architecture（架构）、Contributing（贡献指南）等核心内容。
+     - **Architecture**：详细说明核心 Agent Loop、Prompt 构建、Memory 系统、Skills 系统、Plugin 系统等。
+     - **Contributing**：开发环境搭建、代码规范、PR 流程、常见修改路径（新增 Skill、Tool、Provider、Plugin 等）。
+   - 备用大模型索引：
+     - LLM 简明索引：https://hermes-agent.nousresearch.com/docs/llms.txt
+     - LLM 全量文档：https://hermes-agent.nousresearch.com/docs/llms-full.txt
+
+2. **GitHub 仓库关键文件**：
+   - GitHub 仓库主页：https://github.com/NousResearch/hermes-agent
+   - **CONTRIBUTING.md** (https://github.com/NousResearch/hermes-agent/blob/main/CONTRIBUTING.md)：最实用的二次开发手册，覆盖开发设置、架构概述、代码风格、跨平台注意事项、安全规范等。
+   - **AGENTS.md** (https://github.com/NousResearch/hermes-agent/blob/main/AGENTS.md)：专门给 AI Coding Agent（包括 Hermes 自己）使用的开发指南。
+   - **README.md** 与源码中的 docstring 也是极重要的参考。
 
 本地上游源码位置：
 
